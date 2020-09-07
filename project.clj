@@ -6,6 +6,7 @@
 
   :dependencies [[org.clojure/clojure "1.10.1"]
                  [org.clojure/clojurescript "1.10.773"]
+                 [org.clojure/core.async "1.3.610"]
                  [reagent "0.10.0"]]
 
   :plugins [[lein-cljsbuild "1.1.7"]
