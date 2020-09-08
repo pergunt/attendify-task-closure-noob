@@ -13,7 +13,8 @@
 
 ;; atom to store file contents
 
-(def file-data (atom ""))
+(def file-data (atom []))
+(def toggled-state (atom false))
 
 ;; transducer to stick on a core-async channel to manipulate all the weird javascript
 ;; event objects --- basically just takes the array of file objects or something
@@ -49,45 +50,121 @@
 (defn input-component []
   [:input {:type "file" :id "file" :accept ".txt" :name "file" :on-change put-upload}])
 
+(defn on-item-click [e]
+  (let [index (js/parseInt (-> e .-currentTarget .-dataset .-index))]
+    (reset! toggled-state (if (= @toggled-state index)
+                            false
+                            index
+                            ))
+    )
+  )
+
+;; ----Add a multi-method
+(defn table-item [el text index column]
+  [el
+   (if (true? (= @toggled-state index))
+     [:<>
+      [:input {
+                :value text
+                :type (if (and (= column :income) (= el :td))
+                        "number"
+                        "text"
+                        )
+                :on-blur (fn [e]
+                           (let [inputType (-> e .-currentTarget .-type)
+                                 v (-> e .-currentTarget .-value)
+                                 ]
+                             (when (and (= inputType "number") (empty? v))
+                                   (reset! file-data (
+                                     update-in @file-data [index column] (fn [oldVal] 0)
+                                   )
+                                 )
+                               )
+                             )
+                           )
+                :on-change (fn [e]
+                             (let [v (-> e .-currentTarget .-value)
+                                   inputType (-> e .-currentTarget .-type)
+                                   ]
+                               (reset! file-data (
+                                   update-in @file-data [index column] (fn [oldVal] v)
+                                   )
+                                 )
+                               )
+                             )
+                }
+       ]
+       [:span.toggle {
+                :on-click on-item-click
+                :data-index index
+                } "close"
+        ]
+      ]
+     [:<>
+      [:span text]
+      [:span.toggle {
+               :on-click on-item-click
+               :data-index index
+               } "open"
+       ]
+      ]
+     )
+   ]
+  )
 ;; -------------------------
 ;; Views
 (defn table []
   (when (first @file-data)
     [:table.full-width.talign-center
-     (map-indexed
-      (fn [index item]
-        (let [[company income] (str/split item " ")]
-          (if (= 0 index)
-            [:thead
-             [:tr
-              [:th company]
-              [:th income]
-              ]
-             ]
-            [:tbody
-             [:tr
-              [:td company]
-              [:td income]
-              ]
-             ]
-            )
-          )
+     [:thead
+      (let [{c :company i :income} (first @file-data)]
+        [:tr
+         [table-item :th c 0 :company]
+         [table-item :th i 0 :income]
+         ]
         )
-        @file-data
-      )
+      ]
+     [:tbody
+      (map-indexed (
+         fn [index {c :company i :income}]
+           ^{:key index} [:tr
+                          [table-item :td c (+ index 1) :company]
+                          [table-item :td i (+ index 1) :income]
+                          ]
+           ) (rest @file-data)
+         )
+      ]
      ]
     )
   )
+
 ;; sit around in a loop waiting for a string to appear in the file-reads channel and put it in the state atom to be read by reagent and rendered on the page.
 (go-loop []
-         (reset! file-data (str/split (<! file-reads) "\n"))
-         (println @file-data)
-         (recur))
+   (let [splitedArr (str/split (str/trim (<! file-reads)) "\n")]
+     (reset! file-data
+             (vec (map (fn [item]
+                 (let [[company income] (str/split item " ")]
+                   {:company company :income income}
+                   )
+                 )
+                splitedArr
+               ))
+       )
+     (recur)
+ ))
 
 (defn home-page []
   [:div
-   [:h2 "Welcome to Reagent"]
    [input-component]
+   [:p "total " (->> (rest @file-data)
+                    (map (fn [{i :income}]
+                           (if (= i "")
+                             0
+                             (js/parseInt i)
+                             )
+                           ))
+                    (reduce + 0)
+                    )]
    [table]
    ])
 

@@ -40,9 +40,28 @@ a:hover {
 }
 td, th {
   cursor: pointer;
-  transition: background-color .3s ease-in-out;
+  position: relative;
+  transition: all .3s ease-in-out;
+}
+td span:last-child,
+th span:last-child {
+  opacity: 0;
+  transition: opacity .3s ease-in-out;
+}
+td:hover span:last-child,
+th:hover span:last-child {
+  opacity: 1;
 }
 td:hover,
 th:hover {
   background-color: #6495ED;
+  color: #fff;
+}
+.toggle {
+  font-size: 14px;
+  margin-left: 5px;
+  color: #fff;
+  position: absolute;
+  right: 0;
+  top: 0;
 }
