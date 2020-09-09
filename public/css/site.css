@@ -43,6 +43,12 @@ td, th {
   position: relative;
   transition: all .3s ease-in-out;
 }
+input[type="file"] {
+  outline: none;
+}
+span {
+  vertical-align: middle;
+}
 td span:last-child,
 th span:last-child {
   opacity: 0;
@@ -57,11 +63,12 @@ th:hover {
   background-color: #6495ED;
   color: #fff;
 }
-.toggle {
+td .fas,
+th .fas {
   font-size: 14px;
-  margin-left: 5px;
+  margin-left: 25px;
   color: #fff;
-  position: absolute;
-  right: 0;
-  top: 0;
+}
+.upload-label > * {
+  cursor: pointer;
 }
