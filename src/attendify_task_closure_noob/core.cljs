@@ -155,7 +155,7 @@
   [:span.upload-label
    [:label
     [:input.d-none
-     {:type "file" :accept ".txt" :on-change put-upload}]
+     {:type "file" :accept ".csv" :on-change put-upload}]
     [:i.fa.fa-upload.fa-lg]
     (if (empty? file-name)
       "click here to upload and render csv..."
