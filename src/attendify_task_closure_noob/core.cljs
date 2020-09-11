@@ -11,7 +11,7 @@
 (defn validate-label [v]
   (-> v empty? not))
 (defn is-number [x]
-  (boolean (-> x js/parseInt js/Boolean)))
+  (boolean (not (js/isNaN x))))
 
 (s/def ::content
        (s/+
@@ -24,7 +24,7 @@
 ;(println (s/conform ::nested [["Company" "Income"] ["Acme" 2] ["Evil" 2]]))
 
 ;; atom to store file contents
-(defonce default-state {:isOpen false :file-name ""})
+(defonce default-state {:isOpen false :file-name "" :file-size 0})
 (defonce file-data (atom []))
 (defonce app-state (atom default-state))
 
@@ -44,8 +44,13 @@
   (map #(-> % .-target .-result parse js->clj)))
 
 ;; two core.async channels to take file array and then file and apply above transducers to them.
+(defn handle-exception
+  [ex]
+  (js/alert (.-message ex))
+  nil)
+
 (def upload-reqs (chan 1 first-file))
-(def file-reads (chan 1 extract-result))
+(def file-reads (chan 1 extract-result handle-exception))
 
 ;; function to call when a file event appears: stick it on the upload-reqs channel (which will use the transducer to grab the first file)
 (defn put-upload [e]
@@ -55,7 +60,7 @@
 (go-loop []
          (let [reader (js/FileReader.)
                file   (<! upload-reqs)]
-           (swap! app-state assoc :file-name (.-name file))
+           (swap! app-state assoc :file-name (.-name file) :file-size (.-size file))
            (set! (.-onload reader) #(put! file-reads %))
            (.readAsText reader file)
            (recur)))
@@ -64,14 +69,15 @@
 (go-loop []
          (let [file (<! file-reads)]
            (try
-             (if (not (s/valid? ::nested file))
-               (throw (js/Error. "The file is invalid")))
-             (let [parsedFile (vec
-                               (map
-                                (fn [item]
-                                  {:company (item 0) :income (item 1)})
-                                file))]
-               (reset! file-data parsedFile))
+             (cond
+              (< (* 10 1024) (:file-size @app-state)) (throw (js/Error. "The file is too big"))
+              (not (s/valid? ::nested file))          (throw (js/Error. "The file is invalid"))
+              :else                                   (let [parsedFile (vec
+                                                                        (map
+                                                                         (fn [item]
+                                                                           {:company (item 0) :income (item 1)})
+                                                                         file))]
+                                                        (reset! file-data parsedFile)))
              (catch js/Error e
                (reset! file-data [])
                (-> e .-message js/alert)))
@@ -83,12 +89,31 @@
            (if (= (get @app-state :isOpen) index)
              false
              index))))
+(defn set-default-value [v def-v]
+  (if (empty? (str v))
+    def-v
+    v))
+
 
 ;; ----Add a multi-method
 (defn table-item [el text index column]
   [el
    (if (true? (= (get @app-state :isOpen) index))
-     [:<>
+     [:form
+      {:on-submit (fn [e]
+                    (.preventDefault e)
+                    (swap! app-state assoc :isOpen false)
+                    (reset! file-data
+                            (update-in @file-data [index column]
+                                       (fn [oldVal]
+                                         (let [isNumeric   (and (not= index 0) (= column :income))
+                                               numToString (str oldVal) ;; for the "empty?" condition
+                                               ]
+                                           (cond
+                                            (and isNumeric (not (empty? numToString)))              (js/parseFloat oldVal)
+                                            (and isNumeric (empty? numToString))                    0
+                                            (and (not isNumeric) (empty? oldVal))                   "-"
+                                            :else                                                   oldVal))))))}
       [:input
        {:value     text
         :type      (if (and (= column :income) (= el :td))
@@ -100,9 +125,12 @@
                        (reset! file-data
                                (update-in @file-data [index column]
                                           (fn [oldVal]
-                                            (if (and (= inputType "number") (empty? v))
-                                              0
-                                              (js/parseInt v)))))))
+                                            (let [isNumber (= inputType "number")]
+                                              (cond
+                                               (and (= inputType "number") (empty? v)) 0
+                                               (= inputType "number")                  (js/parseFloat v)
+                                               (and (= inputType "text") (empty? v))   "-"
+                                               :else                                   v)))))))
         :on-change (fn [e]
                      (let [v         (-> e .-currentTarget .-value)
                            inputType (-> e .-currentTarget .-type)]
@@ -149,20 +177,24 @@
                        (reset! file-data [])
                        (reset! app-state default-state))}])])
 
+(defn get-sum
+  [data]
+  (->> data
+       (map
+        (fn [{i :income}]
+          (if (= i "")
+            0
+            (js/parseFloat i))))
+       (reduce + 0)))
+
 (defn home-page []
   (let [{file-name :file-name} @app-state
-        [header & content]     @file-data]
+        [header & content]     @file-data
+        sum                    (get-sum content)]
     [:div
      [upload-btn file-name]
-     [:p
-      "total "
-      (->> content
-           (map
-            (fn [{i :income}]
-              (if (= i "")
-                0
-                (js/parseInt i))))
-           (reduce + 0))]
+     [:p "Total " sum]
+     [:p "Average " (/ sum 2.0)]
      [table header content]]))
 
 ;; -------------------------
