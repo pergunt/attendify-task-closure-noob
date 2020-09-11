@@ -21,16 +21,11 @@
        (s/cat :head    (s/spec (s/tuple #(= "Company" %) #(= "Income" %)))
               :content ::content))
 
-;(println (s/conform ::nested [["Company" "Income"] ["Acme" 2] ["Evil" 2]]))
-
 ;; atom to store file contents
 (defonce default-state {:isOpen false :file-name "" :file-size 0})
 (defonce file-data (atom []))
 (defonce app-state (atom default-state))
 
-;; transducer to stick on a core-async channel to manipulate all the weird javascript
-;; event objects --- basically just takes the array of file objects or something
-;; that the incomprehensible browser API creates and grabs the first one, then resets things.
 (def first-file
   (map
    (fn [e]
@@ -89,53 +84,47 @@
            (if (= (get @app-state :isOpen) index)
              false
              index))))
-(defn set-default-value [v def-v]
-  (if (empty? (str v))
-    def-v
-    v))
 
+(defn set-value-after-interaction [oldVal]
+  (fn [index column]
+    (let [isNumeric   (and (not= index 0) (= column :income))
+          numToString (str oldVal) ;; for the "empty?" condition
+          ]
+      (cond
+       (and isNumeric (not (empty? numToString)))              (js/parseFloat oldVal)
+       (and isNumeric (empty? numToString))                    0
+       (and (not isNumeric) (empty? oldVal))                   "-"
+       :else                                                   oldVal))))
+(defn handle-input-value [e]
+  (let [eventType (.-type e)]
+    (when (= eventType "submit")
+          (.preventDefault e)
+          (swap! app-state assoc :isOpen false)
+          )
+    )
+  (fn [index column]
+    (let [inputType (-> e .-currentTarget .-type)
+          v         (-> e .-currentTarget .-value)]
+      (reset! file-data
+              (update-in @file-data [index column] #((set-value-after-interaction %) index column))))
+    )
+  )
 
-;; ----Add a multi-method
 (defn table-item [el text index column]
   [el
    (if (true? (= (get @app-state :isOpen) index))
      [:form
-      {:on-submit (fn [e]
-                    (.preventDefault e)
-                    (swap! app-state assoc :isOpen false)
-                    (reset! file-data
-                            (update-in @file-data [index column]
-                                       (fn [oldVal]
-                                         (let [isNumeric   (and (not= index 0) (= column :income))
-                                               numToString (str oldVal) ;; for the "empty?" condition
-                                               ]
-                                           (cond
-                                            (and isNumeric (not (empty? numToString)))              (js/parseFloat oldVal)
-                                            (and isNumeric (empty? numToString))                    0
-                                            (and (not isNumeric) (empty? oldVal))                   "-"
-                                            :else                                                   oldVal))))))}
+      {:on-submit #((handle-input-value %) index column)}
       [:input
        {:value     text
         :type      (if (and (= column :income) (= el :td))
                      "number"
                      "text")
-        :on-blur   (fn [e]
-                     (let [inputType (-> e .-currentTarget .-type)
-                           v         (-> e .-currentTarget .-value)]
-                       (reset! file-data
-                               (update-in @file-data [index column]
-                                          (fn [oldVal]
-                                            (let [isNumber (= inputType "number")]
-                                              (cond
-                                               (and (= inputType "number") (empty? v)) 0
-                                               (= inputType "number")                  (js/parseFloat v)
-                                               (and (= inputType "text") (empty? v))   "-"
-                                               :else                                   v)))))))
+        :on-blur   #((handle-input-value %) index column)
         :on-change (fn [e]
-                     (let [v         (-> e .-currentTarget .-value)
-                           inputType (-> e .-currentTarget .-type)]
+                     (let [v         (-> e .-currentTarget .-value)]
                        (reset! file-data
-                               (update-in @file-data [index column] (fn [oldVal] v)))))}]
+                               (update-in @file-data [index column] (fn [_] v)))))}]
       [:i.fas.fa-splotch
        {:on-click   on-item-click
         :data-index index}]]
